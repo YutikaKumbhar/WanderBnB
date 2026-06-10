@@ -1,5 +1,5 @@
 <% layout("/listings/layouts/boilerplate") %>
-<body>
+<br/>
     <h3> Listing Details: </h3>
         <ul> 
             <li><%= listing.title %></li>
@@ -14,4 +14,4 @@
     <form method="POST" action="/listings/<%= listing._id %>?_method=DELETE">
         <button>Delete this Listing</button>
     </form>
-</body>
+
