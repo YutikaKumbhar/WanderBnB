@@ -6,6 +6,7 @@ const path = require("path");
 const methodOverride = require("method-override");
 const ejsMate = require("ejs-mate");
 const wrapAsync = require("./utils/wrapAsync.js");
+const ExpressError = require("./utils/ExpressError.js");
 
 const MONGO_URL = "mongodb://127.0.0.1:27017/wanderlust";
 
@@ -24,6 +25,7 @@ async function main() {
 app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 app.use(express.urlencoded({extended:true}));
+app.use(express.json());
 app.use(methodOverride("_method"));
 app.engine('ejs', ejsMate);
 app.use(express.static(path.join(__dirname, "public")));
@@ -33,63 +35,75 @@ app.get("/", (req, res) => {
 });
 
 // Index Route - Show all listings
-app.get("/listings", async (req,res) => {
+app.get("/listings", wrapAsync(async (req,res) => {
     const allListings = await Listing.find({});
     res.render("listings/index.ejs", {allListings});
-});
+}));
 
 // New Route 
 app.get("/listings/new", (req,res) => {
-    res.render("listings/new.ejs");
+    res.render("listings/new.ejs", { listing: {}, error: null });
 });
 
 // Show Route - Show details of one listing
-app.get("/listings/:id", async (req,res) => {
+app.get(
+    "/listings/:id", 
+    wrapAsync(async (req,res) => {
     let {id} = req.params;
-    id = id.trim(); // Remove any leading/trailing whitespace
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).send('Invalid listing ID');
-    }
     const listing =  await Listing.findById(id);
-    if (!listing) {
-        return res.status(404).send('Listing not found');
-    }
     res.render("listings/show.ejs", {listing});
-});
+}));
 
 // Create Route 
 app.post(
     "/listings", 
-    wrapAsync(async (req,res,next) => { 
-    const newListing = new Listing(req.body.listing);
-    await newListing.save();
-    res.redirect("/listings");   
-})
-);
+    wrapAsync(async (req,res,next) => {
+        if(!req.body.listing) {
+            throw new ExpressError(400, "Send valid data for listing");
+        }
+        const newListing = new Listing(req.body.listing);
+        await newListing.save();
+        res.redirect("/listings");
+        // const listingData = req.body && req.body.listing ? req.body.listing : req.body;
+        // if(!listingData || Object.keys(listingData).length === 0){
+        //     return res.status(400).render("listings/new.ejs", { listing: {}, error: "Send valid data for listing" });
+        // }
+        // // try {
+        //     const newListing = new Listing(listingData);
+        //     await newListing.save();
+        //     res.redirect("/listings");
+        // } catch(err) {
+        //     if (err.name === 'ValidationError') {
+        //         return res.status(400).render("listings/new.ejs", { listing: listingData, error: err.message });
+        //     }
+        //     next(err);
+        // }
+    }
+));
 
 //Edit Route
-app.get("/listings/:id/edit", async (req,res)=> {
+app.get("/listings/:id/edit", wrapAsync(async (req,res,next)=> {
     let {id} = req.params;
     id = id.trim();
     if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).send('Invalid listing ID');
+        return next(new ExpressError(400, 'Invalid listing ID'));
     }
     const listing = await Listing.findById(id);
     if (!listing) {
-        return res.status(404).send('Listing not found');
+        return next(new ExpressError(404, 'Listing not found'));
     }
     res.render("listings/edit.ejs", {listing});
-});
+}));
 
 //Update Route
-app.put("/listings/:id", async (req, res)=> {
+app.put("/listings/:id", wrapAsync(async (req, res)=> {
     let { id } = req.params;
     id = id.trim();
     if (!mongoose.Types.ObjectId.isValid(id)) {
         return res.status(400).send('Invalid listing ID');
     }
 
-    const updatedListing = { ...req.body.listing };
+    const updatedListing = { ...((req.body && req.body.listing) ? req.body.listing : req.body) };
     if (typeof updatedListing.image === "string") {
         const imageUrl = updatedListing.image.trim();
         if (imageUrl === "") {
@@ -109,10 +123,10 @@ app.put("/listings/:id", async (req, res)=> {
     }
 
     res.redirect(`/listings/${id}`);
-});
+}));
 
 // Delete Route
-app.delete("/listings/:id", async (req,res) => {
+app.delete("/listings/:id", wrapAsync(async (req,res) => {
     let {id} = req.params;
     id = id.trim();
     if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -121,7 +135,7 @@ app.delete("/listings/:id", async (req,res) => {
     let deletedListing = await Listing.findByIdAndDelete(id);
     console.log(deletedListing);
     res.redirect("/listings");
-});
+}));
 
 
 // app.get("/testListing",async (req, res) => {
@@ -138,8 +152,13 @@ app.delete("/listings/:id", async (req,res) => {
 //     res.send("successful testing");
 // });
 
+app.use((req, res, next)=> {
+    next(new ExpressError(404, "Page not found"));
+});
+
 app.use((err, req, res, next)=> {
-    res.send("something went wrong!");
+    let {statusCode=500, message="something went wrong"} = err;
+    res.status(statusCode).render("error.ejs", { message });
 });
 
 app.listen(8080, ()=> {
