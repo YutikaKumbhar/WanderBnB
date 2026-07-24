@@ -7,6 +7,7 @@ const methodOverride = require("method-override");
 const ejsMate = require("ejs-mate");
 const wrapAsync = require("./utils/wrapAsync.js");
 const ExpressError = require("./utils/ExpressError.js");
+const { listingSchema } = require("./schema.js");
 
 const MONGO_URL = "mongodb://127.0.0.1:27017/wanderlust";
 
@@ -34,6 +35,16 @@ app.get("/", (req, res) => {
     res.send("I am root");
 });
 
+const validateListing = (req,res,next) => {
+    let { error } = listingSchema.validate(req.body);
+    if(error){
+        let errMessage = error.details.map(el => el.message).join(",");
+        throw new ExpressError(400, errMessage);
+    } else {
+        next();
+    }
+};
+
 // Index Route - Show all listings
 app.get("/listings", wrapAsync(async (req,res) => {
     const allListings = await Listing.find({});
@@ -56,28 +67,18 @@ app.get(
 
 // Create Route 
 app.post(
-    "/listings", 
+    "/listings",
+    validateListing, 
     wrapAsync(async (req,res,next) => {
-        if(!req.body.listing) {
-            throw new ExpressError(400, "Send valid data for listing");
+        // const listingData = req.body && req.body.listing ? req.body.listing : req.body;
+        let result = listingSchema.validate(req.body);
+        console.log(result);
+        if (result.error) {
+            return next(new ExpressError(400, result.error.message));
         }
         const newListing = new Listing(req.body.listing);
         await newListing.save();
         res.redirect("/listings");
-        // const listingData = req.body && req.body.listing ? req.body.listing : req.body;
-        // if(!listingData || Object.keys(listingData).length === 0){
-        //     return res.status(400).render("listings/new.ejs", { listing: {}, error: "Send valid data for listing" });
-        // }
-        // // try {
-        //     const newListing = new Listing(listingData);
-        //     await newListing.save();
-        //     res.redirect("/listings");
-        // } catch(err) {
-        //     if (err.name === 'ValidationError') {
-        //         return res.status(400).render("listings/new.ejs", { listing: listingData, error: err.message });
-        //     }
-        //     next(err);
-        // }
     }
 ));
 
@@ -96,32 +97,35 @@ app.get("/listings/:id/edit", wrapAsync(async (req,res,next)=> {
 }));
 
 //Update Route
-app.put("/listings/:id", wrapAsync(async (req, res)=> {
-    let { id } = req.params;
-    id = id.trim();
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-        return res.status(400).send('Invalid listing ID');
-    }
+app.put("/listings/:id", 
+    validateListing,
+    wrapAsync(async (req, res)=> {
+        let { id } = req.params;
+        await Listing.findByIdAndUpdate(id, { ...req.body.listing });
+    // let { id } = req.params;
+    // id = id.trim();
+    // if (!mongoose.Types.ObjectId.isValid(id)) {
+    //     return res.status(400).send('Invalid listing ID');
+    // }
 
-    const updatedListing = { ...((req.body && req.body.listing) ? req.body.listing : req.body) };
-    if (typeof updatedListing.image === "string") {
-        const imageUrl = updatedListing.image.trim();
-        if (imageUrl === "") {
-            delete updatedListing.image;
-        } else {
-            updatedListing.image = { filename: "listingimage", url: imageUrl };
-        }
-    }
+    // const updatedListing = { ...((req.body && req.body.listing) ? req.body.listing : req.body) };
+    // if (typeof updatedListing.image === "string") {
+    //     const imageUrl = updatedListing.image.trim();
+    //     if (imageUrl === "") {
+    //         delete updatedListing.image;
+    //     } else {
+    //         updatedListing.image = { filename: "listingimage", url: imageUrl };
+    //     }
+    // }
 
-    const listing = await Listing.findByIdAndUpdate(id, updatedListing, {
-        runValidators: true,
-        new: true,
-    });
+    // const listing = await Listing.findByIdAndUpdate(id, updatedListing, {
+    //     runValidators: true,
+    //     new: true,
+    // });
 
-    if (!listing) {
-        return res.status(404).send('Listing not found');
-    }
-
+    // if (!listing) {
+    //     return res.status(404).send('Listing not found');
+    // }
     res.redirect(`/listings/${id}`);
 }));
 

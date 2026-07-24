@@ -19,7 +19,8 @@
             <div class="card-body">
                 <p class="card-text">
                     <b><%= listing.title %></b> <br />
-                    &#8377; <%= listing.price.toLocaleString('en-US') %> /night
+                    <% const safePrice = Number.isFinite(Number(listing.price)) ? Number(listing.price).toLocaleString('en-US') : 'Unavailable'; %>
+                    &#8377; <%= safePrice %> /night
                 </p>
             </div>
         </div>
