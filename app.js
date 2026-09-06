@@ -7,13 +7,14 @@ const methodOverride = require("method-override");
 const ejsMate = require("ejs-mate");
 const wrapAsync = require("./utils/wrapAsync.js");
 const ExpressError = require("./utils/ExpressError.js");
-const { listingSchema } = require("./schema.js");
+const { listingSchema, reviewSchema } = require("./schema.js");
+const Review = require("./models/review.js");
 
 const MONGO_URL = "mongodb://127.0.0.1:27017/wanderlust";
 
 main()
     .then(() =>{
-        console.log("Connected to MongoDB");
+        console.log("Connected to DB");
     })
     .catch((err) => {
         console.log(err);
@@ -35,6 +36,7 @@ app.get("/", (req, res) => {
     res.send("I am root");
 });
 
+//Schema validation function
 const validateListing = (req,res,next) => {
     let { error } = listingSchema.validate(req.body);
     if(error){
@@ -44,6 +46,17 @@ const validateListing = (req,res,next) => {
         next();
     }
 };
+
+const validateReview = (req,res,next) => {
+    let { error } = reviewSchema.validate(req.body);
+    if(error){
+        let errMessage = error.details.map(el => el.message).join(",");
+        throw new ExpressError(400, errMessage);
+    } else {
+        next();
+    }
+};
+
 
 // Index Route - Show all listings
 app.get("/listings", wrapAsync(async (req,res) => {
@@ -61,16 +74,15 @@ app.get(
     "/listings/:id", 
     wrapAsync(async (req,res) => {
     let {id} = req.params;
-    const listing =  await Listing.findById(id);
+    const listing =  await Listing.findById(id).populate("reviews");
     res.render("listings/show.ejs", {listing});
 }));
 
 // Create Route 
 app.post(
     "/listings",
-    validateListing, 
+    validateListing, //using validation- passed as a middleware
     wrapAsync(async (req,res,next) => {
-        // const listingData = req.body && req.body.listing ? req.body.listing : req.body;
         let result = listingSchema.validate(req.body);
         console.log(result);
         if (result.error) {
@@ -102,30 +114,6 @@ app.put("/listings/:id",
     wrapAsync(async (req, res)=> {
         let { id } = req.params;
         await Listing.findByIdAndUpdate(id, { ...req.body.listing });
-    // let { id } = req.params;
-    // id = id.trim();
-    // if (!mongoose.Types.ObjectId.isValid(id)) {
-    //     return res.status(400).send('Invalid listing ID');
-    // }
-
-    // const updatedListing = { ...((req.body && req.body.listing) ? req.body.listing : req.body) };
-    // if (typeof updatedListing.image === "string") {
-    //     const imageUrl = updatedListing.image.trim();
-    //     if (imageUrl === "") {
-    //         delete updatedListing.image;
-    //     } else {
-    //         updatedListing.image = { filename: "listingimage", url: imageUrl };
-    //     }
-    // }
-
-    // const listing = await Listing.findByIdAndUpdate(id, updatedListing, {
-    //     runValidators: true,
-    //     new: true,
-    // });
-
-    // if (!listing) {
-    //     return res.status(404).send('Listing not found');
-    // }
     res.redirect(`/listings/${id}`);
 }));
 
@@ -141,6 +129,32 @@ app.delete("/listings/:id", wrapAsync(async (req,res) => {
     res.redirect("/listings");
 }));
 
+//Reviews
+//Post Route
+app.post("/listings/:id/reviews", validateReview, wrapAsync(async(req,res) => {
+    let listing = await Listing.findById(req.params.id);
+    let newReview = new Review(req.body.review);
+
+    listing.reviews.push(newReview);
+
+    await newReview.save();
+    await listing.save();
+
+    console.log("new review saved");
+    res.redirect(`/listings/${listing._id}`);
+}));
+
+//Delete Route
+app.delete("/listings/:id/reviews/:reviewId", 
+    wrapAsync(async (req,res) => {
+        let { id, reviewId } = req.params;
+
+        await Listing.findByIdAndUpdate(id, {$pull: {reviews: reviewId}});
+        await Review.findByIdAndDelete(reviewId);
+
+        res.redirect(`/listings/${id}`);
+    })
+);    
 
 // app.get("/testListing",async (req, res) => {
 //     let sampleListing = new Listing({
